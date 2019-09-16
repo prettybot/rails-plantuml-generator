@@ -2,6 +2,7 @@ module Rails
   module Plantuml
     module Generator
       class ModelGenerator
+
         def initialize(models, whitelist_regex)
           @whitelist_regex = Regexp.new whitelist_regex if whitelist_regex
           @models = models.select { |m| class_relevant? m }
@@ -25,16 +26,17 @@ module Rails
           models.each do |model|
             associations = model.reflect_on_all_associations
             parent = model.superclass
-
+            binding.pry if model.name == "HABTM_Consultors"
             if class_relevant? parent
               associations.reject! do |association|
-                parent.reflect_on_all_associations.any? {|parent_association| association.name == parent_association.name}
+                parent.reflect_on_all_associations.any? { |parent_association| association.name == parent_association.name }
               end
             end
 
             result[model] = []
 
             associations.each do |association|
+              binding.pry
               next if association.options[:polymorphic]
               next if association.through_reflection
               other = association.class_name.constantize
@@ -75,19 +77,37 @@ module Rails
           io.puts '@enduml'
         end
 
+        def get_col_type(col)
+          if (col.respond_to?(:bigint?) && col.bigint?) || /\Abigint\b/ =~ col.sql_type
+            'bigint'
+          else
+            (col.type || col.sql_type).to_s
+          end
+        end
+
         def write_class(clazz, io)
+          require 'pry-byebug'
+          # binding.pry
           parent = clazz.superclass
+          comment_helper = ::Rails::Plantuml::Generator::CommentHelper.new(clazz)
+          table_comment = comment_helper.retrieve_table_comment(clazz.table_name)
 
           io.write "class #{class_name clazz} "
           io.write "extends #{class_name parent}" if class_relevant? parent
           io.puts " {"
-
+          if table_comment.present?
+            io.puts "    #{table_comment}"
+            io.puts "    =="
+          end
           unless clazz.abstract_class
-            columns = clazz.columns_hash.keys
-            columns -= parent.columns_hash.keys if class_relevant? parent
-
-            columns.each do |column|
-              io.puts "    #{column}"
+            # TODO 复杂的继承关系
+            # columns = clazz.columns_hash.keys
+            # columns -= parent.columns_hash.keys if class_relevant? parent
+            column_comments = comment_helper.retrieve_column_comments(clazz.table_name)
+            clazz.columns.each do |col|
+              col_comment = column_comments[col.name.to_sym].nil? ? "" : " --- #{column_comments[col.name.to_sym]}"
+              io.puts "    #{col.name} : #{get_col_type(col)}#{col_comment}"
+              # io.puts "    #{col.name}:#{col.sql_type} --- #{column_comments[col.name.to_sym]}"
             end
           end
 
@@ -98,7 +118,7 @@ module Rails
           association_hash.each do |clazz, associations|
             associations.each do |meta|
               other = meta[ASSOCIATION_OTHER_CLASS]
-              back_associtiation_meta = association_hash[other]&.find {|other_meta| other_meta[ASSOCIATION_OTHER_CLASS] == clazz}
+              back_associtiation_meta = association_hash[other]&.find { |other_meta| other_meta[ASSOCIATION_OTHER_CLASS] == clazz }
 
               back_associtiation_symbol = back_associtiation_meta[ASSOCIATION_TYPE] if back_associtiation_meta
               back_associtiation_name = back_associtiation_meta[ASSOCIATION_OTHER_NAME] if back_associtiation_meta
