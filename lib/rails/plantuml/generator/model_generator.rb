@@ -46,8 +46,15 @@ module Rails
           models.each do |model|
             associations = model.reflect_on_all_associations
             associations.each do |assoc|
+              # FIXME 是不是都有class_name
               assoc_class_name = assoc.class_name rescue nil
               assoc_class_name ||= assoc.name.to_s.underscore.singularize.camelize
+              # 自连接
+              if assoc_class_name == model.to_s
+                new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "id", model.table_name, assoc.options[:foreign_key] || "#{assoc.plural_name.singularize}_id")
+                result << new_obj unless include_same_obj?(result, new_obj)
+                next
+              end
               macro = assoc.macro.to_s
               if assoc.options.include?(:through)
                 if macro == "has_many"
@@ -60,7 +67,7 @@ module Rails
                   begin
                     third_class = third_class_name.constantize
                   rescue NameError
-                    puts "WARNING: #{third_class_name} not exists"
+                    puts "WARNING: #{third_class_name} not exists (#{model.to_s} #{macro}:#{third_class_name.underscore.pluralize})"
                     next
                   end
                   if third_class.column_names.include?("#{assoc_class_name.underscore}_id")
@@ -75,7 +82,7 @@ module Rails
                 begin
                   assoc_class = assoc_class_name.constantize
                 rescue NameError
-                  puts "WARNING: #{assoc_class_name} not exists"
+                  puts "WARNING: #{assoc_class_name} not exists (#{model.to_s} #{macro}:#{assoc_class_name.underscore.pluralize})"
                   next
                 end
                 new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "id", assoc_class.table_name, "#{assoc.options[:as]}_id", "多态")
@@ -86,7 +93,7 @@ module Rails
                 begin
                   assoc_class = assoc_class_name.constantize
                 rescue NameError
-                  puts "WARNING: #{assoc_class_name} not exists"
+                  puts "WARNING: #{assoc_class_name} not exists (#{model.to_s} #{macro}:#{assoc_class_name.underscore.pluralize})"
                   next
                 end
                 # 普通的一对一/一对多/多对多的关系
@@ -175,7 +182,8 @@ module Rails
           associations.each do |assoc|
             keys = assoc.associations.keys
             values = assoc.associations.values
-            io.puts "#{keys[0].to_s} -- #{keys[1].to_s} : on #{values[0]}=#{values[1]}"
+            remark = assoc.remark.present? ? "(#{assoc.remark})" : ""
+            io.puts "#{values[0].to_s} -- #{values[1].to_s} : on #{keys[0]}=#{keys[1]}#{remark}"
           end
         end
       end

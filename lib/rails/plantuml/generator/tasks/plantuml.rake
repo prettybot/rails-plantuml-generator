@@ -10,7 +10,7 @@ ASSOCIATION_TYPE_HAS_MANY = '*'
 ASSOCIATION_TYPE_HAS_ONE = '1'
 
 namespace :plantuml do
-  desc "Pick a random user as the winner"
+  desc "generate plantuml file for rails models with comments"
   task generate: :environment do |args|
     Rails.application.eager_load!
     options = {}

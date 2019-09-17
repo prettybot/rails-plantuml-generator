@@ -5,7 +5,7 @@ module Rails
         attr_accessor :associations, :remark
 
         def initialize(table_name, table_column, asso_table_name, asso_table_column, remark = "")
-          @associations = {"#{table_name}": table_column, "#{asso_table_name}": asso_table_column}
+          @associations = {"#{table_column}": table_name, "#{asso_table_column}": asso_table_name}
           @remark = remark
         end
 
