@@ -1,4 +1,5 @@
 require 'rails/plantuml/generator/model_generator'
+require 'optparse'
 
 OUTPUT_FILE = 'diagramm.puml'
 
@@ -10,11 +11,20 @@ ASSOCIATION_TYPE_HAS_ONE = '1'
 
 namespace :plantuml do
   desc "Pick a random user as the winner"
-  task :generate, [:whitelist] => :environment do |t, args|
+  task generate: :environment do |args|
     Rails.application.eager_load!
-    models = ActiveRecord::Base.descendants
+    options = {}
+    o = OptionParser.new
+    o.banner = "Usage: rake plantuml:generate [options]"
+    o.on("-s DIR", "--skip DIR") { |excluded_dir|
+      options[:excluded_dir] = excluded_dir
+    }
+    args = o.order!(ARGV) {}
+    model_files = Dir.glob('app/models/**/*.rb')
+    model_files -= o.parse!(args)
+    model_files -= Dir.glob('app/models/concerns/**/*.rb')
 
-    generator = Rails::Plantuml::Generator::ModelGenerator.new models, args[:whitelist]
+    generator = Rails::Plantuml::Generator::ModelGenerator.new model_files, nil
 
     File.open OUTPUT_FILE, 'w' do |file|
       generator.write_to_io file

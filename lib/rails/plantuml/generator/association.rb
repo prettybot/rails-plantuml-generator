@@ -2,6 +2,8 @@ module Rails
   module Plantuml
     module Generator
       class Association
+        attr_accessor :associations, :remark
+
         def initialize(table_name, table_column, asso_table_name, asso_table_column, remark = "")
           @associations = {"#{table_name}": table_column, "#{asso_table_name}": asso_table_column}
           @remark = remark

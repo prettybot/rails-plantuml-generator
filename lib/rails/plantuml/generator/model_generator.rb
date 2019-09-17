@@ -3,11 +3,11 @@ module Rails
     module Generator
       class ModelGenerator
 
-        def initialize(models, whitelist_regex)
+        def initialize(model_files, whitelist_regex)
           @whitelist_regex = Regexp.new whitelist_regex if whitelist_regex
-          @models = models.select { |m| class_relevant? m }
-
+          @models = (model_files.map { |filename| extract_class_name(filename).constantize }).select { |m| class_relevant? m }
           @associations_hash = determine_associations @models
+          binding.pry
         end
 
         def class_relevant?(clazz)
@@ -20,14 +20,39 @@ module Rails
           clazz.name
         end
 
+        def extract_class_name(filename)
+          filename_was, class_name = filename, nil
+
+          filename = "app/models/#{filename.split('app/models')[1]}"
+
+          while filename.split('/').length > 2
+            begin
+              class_name = filename.match(/.*\/models\/(.*).rb$/)[1].camelize
+              class_name.constantize
+              break
+            rescue Exception
+              class_name = nil
+              filename_end = filename.split('/')[2..-1]
+              filename_end.shift
+              filename = "#{filename.split('/')[0, 2].join('/')}/#{filename_end.join('/')}"
+            end
+          end
+
+          if class_name.nil?
+            filename_was.match(/.*\/models\/(.*).rb$/)[1].camelize
+          else
+            class_name
+          end
+        end
+
         def determine_associations(models)
           result = []
           models.each do |model|
             associations = model.reflect_on_all_associations
             associations.each do |assoc|
+              binding.pry if model.to_s == "City::HABTM_Consultors"
               assoc_class_name = assoc.class_name rescue nil
               assoc_class_name ||= assoc.name.to_s.underscore.singularize.camelize
-              assoc_class = assoc_class_name.constantize
               macro = assoc.macro.to_s
               if assoc.options.include?(:through)
                 if macro == "has_many"
@@ -37,31 +62,48 @@ module Rails
                   # 简化嵌套的has_many关联
                   # 区别在于后者没有反向的has_many关联关系
                   third_class_name = get_third_class_name(model, assoc.options[:through])
-                  third_class = third_class_name.constantize
+                  begin
+                    third_class = third_class_name.constantize
+                  rescue NameError
+                    puts "WARNING: #{third_class_name} not exists"
+                    next
+                  end
                   if third_class.column_names.include?("#{assoc_class_name.underscore}_id")
                     # 两个模型之间多对多的关系
-                    new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", third_class.table_name, "#{model.table_name.singularize}_id")
+                    new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "id", third_class.table_name, "#{model.table_name.singularize}_id")
                     result << new_obj unless include_same_obj?(result, new_obj)
                   end
                 elsif macro == "has-one"
                   # do nothing
                 end
               elsif assoc.options.include?(:as)
-                new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", assoc_class.table_name, "#{assoc.options[:as]}_id")
+                begin
+                  assoc_class = assoc_class_name.constantize
+                rescue NameError
+                  puts "WARNING: #{assoc_class_name} not exists"
+                  next
+                end
+                new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "id", assoc_class.table_name, "#{assoc.options[:as]}_id", "多态")
                 result << new_obj unless include_same_obj?(result, new_obj)
               elsif assoc.options.include?(:polymorphic)
                 # do nothing
               else
+                begin
+                  assoc_class = assoc_class_name.constantize
+                rescue NameError
+                  puts "WARNING: #{assoc_class_name} not exists"
+                  next
+                end
                 # 普通的一对一/一对多/多对多的关系
                 if macro == "has_and_belongs_to_many"
                   third_table_name = assoc.options[:join_table] || ActiveRecord::ModelSchema.derive_join_table_name(model.table_name, assoc_class.table_name)
-                  new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", third_table_name, "#{model.table_name.singularize}_id")
+                  new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "id", third_table_name, "#{model.table_name.singularize}_id")
                   result << new_obj unless include_same_obj?(result, new_obj)
                 elsif macro == "has_one" || macro == "has_many"
-                  new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", assoc_class.table_name, "#{model.table_name.singularize}_id")
+                  new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "id", assoc_class.table_name, "#{model.table_name.singularize}_id")
                   result << new_obj unless include_same_obj?(result, new_obj)
                 elsif macro == "belongs_to"
-                  new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "#{assoc_class.table_name.singularize}_id", assoc_class.table_name, "id")
+                  new_obj = ::Rails::Plantuml::Generator::Association.new(model.table_name, "#{assoc_class.table_name.singularize}_id", assoc_class.table_name, "id")
                   result << new_obj unless include_same_obj?(result, new_obj)
                 else
                   # do nothing
@@ -69,6 +111,7 @@ module Rails
               end
             end
           end
+          result
         end
 
         # 判读数组中是有已经有相同的元素（obj）
