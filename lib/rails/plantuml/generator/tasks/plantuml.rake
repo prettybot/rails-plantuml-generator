@@ -24,7 +24,7 @@ namespace :plantuml do
     model_files -= o.parse!(args)
     model_files -= Dir.glob('app/models/concerns/**/*.rb')
 
-    generator = Rails::Plantuml::Generator::ModelGenerator.new model_files, nil
+    generator = Rails::Plantuml::Generator::ModelGenerator.new model_files
 
     File.open OUTPUT_FILE, 'w' do |file|
       generator.write_to_io file
