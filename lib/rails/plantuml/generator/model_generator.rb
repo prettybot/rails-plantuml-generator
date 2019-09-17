@@ -21,46 +21,73 @@ module Rails
         end
 
         def determine_associations(models)
-          result = {}
-
+          result = []
           models.each do |model|
             associations = model.reflect_on_all_associations
-            parent = model.superclass
-            binding.pry if model.name == "HABTM_Consultors"
-            if class_relevant? parent
-              associations.reject! do |association|
-                parent.reflect_on_all_associations.any? { |parent_association| association.name == parent_association.name }
-              end
-            end
-
-            result[model] = []
-
-            associations.each do |association|
-              binding.pry
-              next if association.options[:polymorphic]
-              next if association.through_reflection
-              other = association.class_name.constantize
-
-              next unless class_relevant? other
-
-              case
-              when association.collection?
-                result[model].append({
-                                         ASSOCIATION_TYPE => ASSOCIATION_TYPE_HAS_MANY,
-                                         ASSOCIATION_OTHER_CLASS => other,
-                                         ASSOCIATION_OTHER_NAME => association.name
-                                     })
-              when association.has_one? || association.belongs_to?
-                result[model].append({
-                                         ASSOCIATION_TYPE => ASSOCIATION_TYPE_HAS_ONE,
-                                         ASSOCIATION_OTHER_CLASS => other,
-                                         ASSOCIATION_OTHER_NAME => association.name
-                                     })
+            associations.each do |assoc|
+              assoc_class_name = assoc.class_name rescue nil
+              assoc_class_name ||= assoc.name.to_s.underscore.singularize.camelize
+              assoc_class = assoc_class_name.constantize
+              macro = assoc.macro.to_s
+              if assoc.options.include?(:through)
+                if macro == "has_many"
+                  # has_many :through
+                  # 这里有两种情况
+                  # 两个模型之间多对多的关联关系
+                  # 简化嵌套的has_many关联
+                  # 区别在于后者没有反向的has_many关联关系
+                  third_class_name = get_third_class_name(model, assoc.options[:through])
+                  third_class = third_class_name.constantize
+                  if third_class.column_names.include?("#{assoc_class_name.underscore}_id")
+                    # 两个模型之间多对多的关系
+                    new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", third_class.table_name, "#{model.table_name.singularize}_id")
+                    result << new_obj unless include_same_obj?(result, new_obj)
+                  end
+                elsif macro == "has-one"
+                  # do nothing
+                end
+              elsif assoc.options.include?(:as)
+                new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", assoc_class.table_name, "#{assoc.options[:as]}_id")
+                result << new_obj unless include_same_obj?(result, new_obj)
+              elsif assoc.options.include?(:polymorphic)
+                # do nothing
+              else
+                # 普通的一对一/一对多/多对多的关系
+                if macro == "has_and_belongs_to_many"
+                  third_table_name = assoc.options[:join_table] || ActiveRecord::ModelSchema.derive_join_table_name(model.table_name, assoc_class.table_name)
+                  new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", third_table_name, "#{model.table_name.singularize}_id")
+                  result << new_obj unless include_same_obj?(result, new_obj)
+                elsif macro == "has_one" || macro == "has_many"
+                  new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "id", assoc_class.table_name, "#{model.table_name.singularize}_id")
+                  result << new_obj unless include_same_obj?(result, new_obj)
+                elsif macro == "belongs_to"
+                  new_obj = ::Rails::Plantuml::Generator::Association.new(mode.table_name, "#{assoc_class.table_name.singularize}_id", assoc_class.table_name, "id")
+                  result << new_obj unless include_same_obj?(result, new_obj)
+                else
+                  # do nothing
+                end
               end
             end
           end
+        end
 
-          result
+        # 判读数组中是有已经有相同的元素（obj）
+        def include_same_obj?(arr, new_obj)
+          arr.each do |obj|
+            if obj.equal_to? new_obj
+              return true
+            end
+          end
+          false
+        end
+
+        # 得到through的第三个中间model
+        def get_third_class_name(clazz, table_alias)
+          clazz.reflect_on_all_associations.each do |association|
+            if association.name == table_alias
+              return association.class_name
+            end
+          end
         end
 
         def write_to_io(io)
