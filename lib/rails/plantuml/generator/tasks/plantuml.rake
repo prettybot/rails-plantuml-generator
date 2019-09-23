@@ -13,15 +13,8 @@ namespace :plantuml do
   desc "generate plantuml file for rails models with comments"
   task generate: :environment do |args|
     Rails.application.eager_load!
-    options = {}
-    o = OptionParser.new
-    o.banner = "Usage: rake plantuml:generate [options]"
-    o.on("-s DIR", "--skip DIR") { |excluded_dir|
-      options[:excluded_dir] = excluded_dir
-    }
-    args = o.order!(ARGV) {}
     model_files = Dir.glob('app/models/**/*.rb')
-    model_files -= o.parse!(args)
+    model_files -= $exclude_file
     model_files -= Dir.glob('app/models/concerns/**/*.rb')
 
     generator = Rails::Plantuml::Generator::ModelGenerator.new model_files
